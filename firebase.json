@@ -1,27 +1,15 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "built",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "firestore.rules",
-      "firestore.indexes.json",
-      "storage.rules",
-      "README.md"
-    ],
-    "rewrites": [
-      { "source": "/admin", "destination": "/admin/index.html" },
-      { "source": "/", "destination": "/index.html" }
-    ],
-    "headers": [
-      {
-        "source": "**/*.@(js)",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      }
+      "**/node_modules/**"
     ]
   },
   "firestore": {
+    "database": "(default)",
+    "location": "asia-southeast1",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
@@ -29,11 +17,33 @@
     "rules": "storage.rules"
   },
   "emulators": {
-    "auth": { "port": 9099 },
-    "firestore": { "port": 8080 },
-    "storage": { "port": 9199 },
-    "hosting": { "port": 5000 },
-    "ui": { "enabled": true, "port": 4000 },
+    "auth": {
+      "port": 9099
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "storage": {
+      "port": 9199
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
     "singleProject": true
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "CCTMS-50-2026",
+        "supportEmail": "support@undefined.firebaseapp.com"
+      }
+    }
   }
 }

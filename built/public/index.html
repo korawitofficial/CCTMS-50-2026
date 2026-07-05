@@ -82,10 +82,10 @@
         </div>
         <div class="col-lg-6">
           <div class="section-head">
-            <div><h2 class="m-0" style="font-size:1.5rem">ข่าวล่าสุด</h2><div class="divider-brass mt-2"></div></div>
-            <a href="news.html" class="btn btn-outline-felt btn-sm">ดูทั้งหมด</a>
+            <div><h2 class="m-0" style="font-size:1.5rem">ภาพกิจกรรม</h2><div class="divider-brass mt-2"></div></div>
+            <a href="gallery.html" class="btn btn-outline-felt btn-sm">ดูทั้งหมด</a>
           </div>
-          <div class="d-flex flex-column gap-3" id="newsListExtended"></div>
+          <div class="row row-cols-2 row-cols-sm-3 g-2" id="galleryGrid"></div>
         </div>
       </div>
     </div>
@@ -104,6 +104,7 @@ import { RankingService } from '../src/services/RankingService.js';
 import { StatisticsService } from '../src/services/StatisticsService.js';
 import { NewsService } from '../src/services/NewsService.js';
 import { HallOfFameService } from '../src/services/HallOfFameService.js';
+import { GalleryService } from '../src/services/GalleryService.js';
 import { renderBoardHtml } from '../src/utils/chessBoard.js';
 import { statusPill } from '../src/components/ui.js';
 import { formatDate, timeAgo } from '../src/utils/helpers.js';
@@ -206,6 +207,15 @@ async function renderHof() {
     </div></div>`).join('') : `<div class="col-12">${emptyState('ยังไม่มีข้อมูลหอเกียรติยศ', 'bi-award')}</div>`;
 }
 await renderHof();
+
+async function renderGallery() {
+  const items = (await GalleryService.list({ tournamentId: tournament?.id })).slice(0, 6);
+  const grid = document.getElementById('galleryGrid');
+  grid.innerHTML = items.length ? items.map((g) => `
+    <div class="col"><div class="rounded ratio ratio-1x1" style="background:linear-gradient(135deg,var(--surface-2),var(--color-line));display:grid;place-items:center;color:var(--color-ink-soft)"><i class="bi bi-image fs-3"></i></div></div>`).join('')
+    : `<div class="col-12">${emptyState('ยังไม่มีภาพกิจกรรม', 'bi-images')}</div>`;
+}
+await renderGallery();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
