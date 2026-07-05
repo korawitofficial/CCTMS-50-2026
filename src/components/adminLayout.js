@@ -34,7 +34,6 @@ const NAV_GROUPS = [
     label: 'เนื้อหา',
     items: [
       { href: 'news.html', icon: 'bi-newspaper', label: 'ข่าวสาร' },
-      { href: 'gallery.html', icon: 'bi-images', label: 'คลังภาพ' },
     ],
   },
   {

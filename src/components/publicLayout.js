@@ -9,7 +9,6 @@ const NAV_ITEMS = [
   { href: 'statistics.html', label: 'สถิติ', match: ['statistics.html'] },
   { href: 'hall-of-fame.html', label: 'หอเกียรติยศ', match: ['hall-of-fame.html'] },
   { href: 'news.html', label: 'ข่าวสาร', match: ['news.html'] },
-  { href: 'gallery.html', label: 'ภาพกิจกรรม', match: ['gallery.html'] },
 ];
 
 function currentPage() {
@@ -86,7 +85,6 @@ export async function renderFooter() {
             <li><a href="teams.html">ทีมทั้งหมด</a></li>
             <li><a href="players.html">ผู้เล่นทั้งหมด</a></li>
             <li><a href="news.html">ข่าวสาร</a></li>
-            <li><a href="gallery.html">คลังภาพ</a></li>
           </ul>
         </div>
         <div class="col-lg-4">
