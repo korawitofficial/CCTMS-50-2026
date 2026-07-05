@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>การแข่งขันทั้งหมด — CCTMS</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/main.css">
+</head>
+<body>
+<main>
+  <section class="py-4" style="background:var(--surface-2);border-bottom:1px solid var(--color-line)">
+    <div class="container-xl">
+      <h1 style="font-size:1.8rem" class="mb-1">การแข่งขันทั้งหมด</h1>
+      <p class="text-soft mb-0">รายการแข่งขันหมากรุกและหมากฮอสของโรงเรียน</p>
+    </div>
+  </section>
+  <section class="section">
+    <div class="container-xl">
+      <div class="d-flex gap-2 flex-wrap mb-4">
+        <input type="search" class="form-control" style="max-width:280px" placeholder="ค้นหาการแข่งขัน..." id="searchInput">
+        <select class="form-select" style="max-width:180px" id="gameTypeFilter">
+          <option value="">ทุกประเภท</option>
+          <option value="Chess">หมากรุกสากล</option>
+          <option value="Thai Chess">หมากรุกไทย</option>
+          <option value="Checkers">หมากฮอส</option>
+        </select>
+        <select class="form-select" style="max-width:180px" id="sortSelect">
+          <option value="latest">ล่าสุด</option>
+          <option value="oldest">เก่าสุด</option>
+          <option value="alpha">ตามตัวอักษร</option>
+        </select>
+      </div>
+      <div class="row row-cols-1 row-cols-md-2 g-4" id="tourGrid"></div>
+    </div>
+  </section>
+</main>
+<script type="module">
+import { mountPublicLayout, emptyState } from '../src/components/publicLayout.js';
+import { TournamentService } from '../src/services/TournamentService.js';
+import { TeamService } from '../src/services/TeamService.js';
+import { statusPill } from '../src/components/ui.js';
+import { debounce } from '../src/utils/helpers.js';
+
+await mountPublicLayout({ breadcrumb: [{ label: 'หน้าแรก', href: 'index.html' }, { label: 'การแข่งขัน' }] });
+
+const all = await TournamentService.list({ publicOnly: true });
+const grid = document.getElementById('tourGrid');
+const searchInput = document.getElementById('searchInput');
+const gameTypeFilter = document.getElementById('gameTypeFilter');
+const sortSelect = document.getElementById('sortSelect');
+
+async function cardHtml(t) {
+  const teamCount = (await TeamService.list({ tournamentId: t.id })).length;
+  return `<div class="col"><a href="tournament.html?slug=${t.slug}" class="text-decoration-none">
+    <div class="app-card app-card--hoverable p-4 h-100">
+      <div class="d-flex justify-content-between align-items-start mb-2">
+        <span class="app-card__eyebrow">${t.gameType}</span>
+        ${statusPill(t.status)}
+      </div>
+      <h3 class="text-dark mb-2" style="font-size:1.25rem">${t.name}</h3>
+      <p class="text-soft small mb-3">${t.description || ''}</p>
+      <div class="d-flex gap-3 small text-soft"><span><i class="bi bi-people me-1"></i>${teamCount} ทีม</span></div>
+    </div>
+  </a></div>`;
+}
+
+async function render() {
+  let rows = [...all];
+  const q = searchInput.value.trim().toLowerCase();
+  if (q) rows = rows.filter((t) => t.name.toLowerCase().includes(q));
+  if (gameTypeFilter.value) rows = rows.filter((t) => t.gameType === gameTypeFilter.value);
+  if (sortSelect.value === 'alpha') rows.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  else if (sortSelect.value === 'oldest') rows.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  else rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  if (!rows.length) { grid.innerHTML = `<div class="col-12">${emptyState('ไม่พบการแข่งขันที่ตรงกับเงื่อนไข', 'bi-search')}</div>`; return; }
+  grid.innerHTML = (await Promise.all(rows.map(cardHtml))).join('');
+}
+searchInput.addEventListener('input', debounce(render, 200));
+gameTypeFilter.addEventListener('change', render);
+sortSelect.addEventListener('change', render);
+await render();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

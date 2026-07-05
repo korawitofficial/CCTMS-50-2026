@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ผู้ดูแล / สิทธิ์ — CCTMS Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/admin.css">
+</head>
+<body>
+<script type="module">
+import { mountAdminLayout } from '../src/components/adminLayout.js';
+import { AdminService } from '../src/services/AdminService.js';
+import { openModal, closeModal, confirmModal, emptyRow } from '../src/components/ui.js';
+import { showToast, formatDate } from '../src/utils/helpers.js';
+
+const ctx = mountAdminLayout({ title: 'ผู้ดูแล / สิทธิ์' });
+if (ctx) {
+  const { content, session } = ctx;
+
+  if (session.roleName !== 'Super Admin') {
+    content.innerHTML = `<div class="app-card p-5 text-center"><i class="bi bi-shield-lock fs-1 text-soft mb-3 d-block"></i><h3 style="font-size:1.1rem">403 — สิทธิ์ไม่เพียงพอ</h3><p class="text-soft mb-0">หน้านี้สำหรับ Super Admin เท่านั้น</p></div>`;
+  } else {
+    const roles = await AdminService.listRoles();
+    content.innerHTML = `
+      <div class="table-toolbar">
+        <h2 style="font-size:1.2rem" class="m-0">รายชื่อผู้ดูแลระบบ</h2>
+        <button class="btn btn-felt btn-sm" id="addBtn"><i class="bi bi-plus-lg me-1"></i>เพิ่มผู้ดูแล</button>
+      </div>
+      <div class="form-hint mb-3"><i class="bi bi-info-circle me-1"></i>การเพิ่มที่นี่เป็นการอนุญาตอีเมล Google ให้เข้าสู่ระบบได้ ผู้ใช้ต้อง Sign-In ด้วยอีเมลนี้เองในหน้า Login</div>
+      <div class="app-card p-0"><table class="app-table">
+        <thead><tr><th>ชื่อ</th><th>อีเมล</th><th>บทบาท</th><th>เข้าสู่ระบบล่าสุด</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>`;
+
+    function openForm() {
+      openModal({
+        title: 'เพิ่มผู้ดูแลระบบ',
+        bodyHtml: `
+          <div class="mb-3"><label class="form-label">ชื่อ-นามสกุล <span class="req">*</span></label><input class="form-control" id="f_name"></div>
+          <div class="mb-3"><label class="form-label">อีเมล (Google) <span class="req">*</span></label><input type="email" class="form-control" id="f_email"></div>
+          <div class="mb-1"><label class="form-label">บทบาท</label><select class="form-select" id="f_role">${roles.map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select></div>`,
+        buttons: [{ label: 'ยกเลิก', variant: 'btn-outline-secondary' }, { label: 'บันทึก', variant: 'btn-felt', close: false, onClick: async () => {
+          const displayName = document.getElementById('f_name').value.trim();
+          const email = document.getElementById('f_email').value.trim();
+          if (!displayName || !email) { showToast('กรุณากรอกชื่อและอีเมล', 'error'); return; }
+          await AdminService.createAdmin({ displayName, email, roleId: document.getElementById('f_role').value }, session.adminId);
+          showToast('เพิ่มผู้ดูแลระบบสำเร็จ'); closeModal(); await render();
+        }}],
+      });
+    }
+
+    async function render() {
+      const admins = await AdminService.listAdmins();
+      document.getElementById('rows').innerHTML = admins.length ? admins.map((a) => `
+        <tr>
+          <td><div class="d-flex align-items-center gap-2"><div class="avatar-circle" style="width:32px;height:32px;font-size:.75rem">${a.displayName[0]}</div><span class="fw-semibold text-dark">${a.displayName}</span></div></td>
+          <td class="small">${a.email}</td>
+          <td><span class="role-chip">${a.role?.name || '-'}</span></td>
+          <td class="small">${a.lastLogin ? formatDate(a.lastLogin) : 'ไม่เคยเข้าระบบ'}</td>
+          <td>${a.status === 'Active' ? '<span class="status-pill status-pill--running">Active</span>' : '<span class="status-pill status-pill--danger">Inactive</span>'}</td>
+          <td class="text-end">${a.id !== session.adminId && a.status === 'Active' ? `<button class="btn btn-sm btn-outline-danger" data-deactivate="${a.id}">ปิดใช้งาน</button>` : ''}</td>
+        </tr>`).join('') : emptyRow(6, 'ยังไม่มีผู้ดูแลระบบ');
+
+      document.querySelectorAll('[data-deactivate]').forEach((b) => b.addEventListener('click', () => {
+        confirmModal({ message: 'ปิดใช้งานบัญชีนี้หรือไม่? ผู้ใช้จะไม่สามารถเข้าสู่ระบบได้อีก', onConfirm: async () => { await AdminService.deactivateAdmin(b.dataset.deactivate, session.adminId); showToast('ปิดใช้งานแล้ว'); await render(); } });
+      }));
+    }
+    document.getElementById('addBtn').addEventListener('click', openForm);
+    await render();
+  }
+}
+</script>
+</body>
+</html>

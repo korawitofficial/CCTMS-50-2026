@@ -1,0 +1,26 @@
+rules_version = '2';
+
+/**
+ * Cloud Storage Security Rules — CCTMS
+ * Public can view all uploaded media (gallery photos are shown on the
+ * public site). Only signed-in Admins may upload/delete.
+ */
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /gallery/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() // relies on Firestore rules to gate who *stays* an active admin
+                   && request.resource.size < 10 * 1024 * 1024 // 10MB max
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Deny everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

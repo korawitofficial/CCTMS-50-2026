@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่แข่งขัน — CCTMS Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/admin.css">
+</head>
+<body>
+<script type="module">
+import { mountAdminLayout } from '../src/components/adminLayout.js';
+import { MatchService } from '../src/services/MatchService.js';
+import { MoveService } from '../src/services/MoveService.js';
+import { ResultService } from '../src/services/ResultService.js';
+import { BoardService } from '../src/services/BoardService.js';
+import { PlayerService } from '../src/services/PlayerService.js';
+import { RoundService } from '../src/services/RoundService.js';
+import { TournamentService } from '../src/services/TournamentService.js';
+import { statusPill, openModal, closeModal, emptyRow } from '../src/components/ui.js';
+import { showToast } from '../src/utils/helpers.js';
+import { renderBoardHtml, START_FEN } from '../src/utils/chessBoard.js';
+import { MatchStatus, ResultType, ResultReason } from '../src/utils/enums.js';
+
+const ctx = mountAdminLayout({ title: 'คู่แข่งขัน' });
+if (ctx) {
+  const { content, session } = ctx;
+  const [boards, rounds, tournaments, allPlayers] = await Promise.all([
+    BoardService.list(), RoundService.list(), TournamentService.list(), PlayerService.list(),
+  ]);
+
+  content.innerHTML = `
+    <div class="table-toolbar">
+      <h2 style="font-size:1.2rem" class="m-0">รายการคู่แข่งขัน</h2>
+      <button class="btn btn-felt btn-sm" id="addBtn"><i class="bi bi-plus-lg me-1"></i>สร้างคู่แข่งขัน</button>
+    </div>
+    <div class="app-card p-0 mb-4"><table class="app-table">
+      <thead><tr><th>กระดาน</th><th>คู่แข่งขัน</th><th>สถานะ</th><th>ตา</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <div id="recorderWrap"></div>`;
+
+  let openMatchId = null;
+
+  function playerOptions() {
+    return allPlayers.map((p) => `<option value="${p.id}">${p.displayName}</option>`).join('');
+  }
+
+  document.getElementById('addBtn').addEventListener('click', () => {
+    openModal({
+      title: 'สร้างคู่แข่งขันใหม่',
+      bodyHtml: `
+        <div class="mb-3"><label class="form-label">กระดาน <span class="req">*</span></label>
+          <select class="form-select" id="f_board">${boards.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}</select></div>
+        <div class="mb-3"><label class="form-label">รอบ</label>
+          <select class="form-select" id="f_round">${rounds.map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select></div>
+        <div class="row g-2 mb-1">
+          <div class="col-6"><label class="form-label">ผู้เล่นฝ่ายขาว <span class="req">*</span></label><select class="form-select" id="f_white">${playerOptions()}</select></div>
+          <div class="col-6"><label class="form-label">ผู้เล่นฝ่ายดำ <span class="req">*</span></label><select class="form-select" id="f_black">${playerOptions()}</select></div>
+        </div>`,
+      buttons: [{ label: 'ยกเลิก', variant: 'btn-outline-secondary' }, { label: 'สร้าง', variant: 'btn-felt', close: false, onClick: async () => {
+        const whiteId = document.getElementById('f_white').value;
+        const blackId = document.getElementById('f_black').value;
+        if (whiteId === blackId) { showToast('กรุณาเลือกผู้เล่นสองคนที่ต่างกัน', 'error'); return; }
+        const white = await PlayerService.get(whiteId);
+        const black = await PlayerService.get(blackId);
+        await MatchService.create({
+          tournamentId: tournaments[0]?.id, boardId: document.getElementById('f_board').value, roundId: document.getElementById('f_round').value,
+          whitePlayerId: whiteId, blackPlayerId: blackId, whiteTeamId: white?.teamId, blackTeamId: black?.teamId,
+          currentPosition: START_FEN,
+        }, session.adminId);
+        showToast('สร้างคู่แข่งขันสำเร็จ'); closeModal(); await renderList();
+      }}],
+    });
+  });
+
+  async function renderList() {
+    const matches = (await MatchService.list()).sort((a, b) => (a.status === 'Running' ? -1 : 1));
+    const trs = await Promise.all(matches.map(async (m) => {
+      const board = await BoardService.get(m.boardId);
+      const [white, black] = await Promise.all([PlayerService.get(m.whitePlayerId), PlayerService.get(m.blackPlayerId)]);
+      return `<tr class="${openMatchId === m.id ? 'table-active' : ''}">
+        <td>${board?.name || '-'}</td>
+        <td class="small">${white?.displayName} <span class="text-soft">vs</span> ${black?.displayName}</td>
+        <td>${statusPill(m.status)}</td>
+        <td>${m.moveCount}</td>
+        <td class="text-end">
+          ${m.status === MatchStatus.SCHEDULED ? `<button class="btn btn-sm btn-outline-felt" data-start="${m.id}">เริ่ม</button>` : ''}
+          <button class="btn btn-sm btn-felt" data-open="${m.id}">บันทึกผล</button>
+        </td>
+      </tr>`;
+    }));
+    document.getElementById('rows').innerHTML = trs.length ? trs.join('') : emptyRow(5, 'ยังไม่มีคู่แข่งขัน');
+
+    document.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', async () => {
+      try { await MatchService.start(b.dataset.start, session.adminId); showToast('เริ่มการแข่งขันแล้ว'); await renderList(); }
+      catch (e) { showToast(e.message, 'error'); }
+    }));
+    document.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', async () => { openMatchId = b.dataset.open; await renderList(); await renderRecorder(); }));
+  }
+
+  async function renderRecorder() {
+    const wrap = document.getElementById('recorderWrap');
+    if (!openMatchId) { wrap.innerHTML = ''; return; }
+    const match = await MatchService.get(openMatchId);
+    if (!match) { wrap.innerHTML = ''; return; }
+    const [white, black, moves, result] = await Promise.all([
+      PlayerService.get(match.whitePlayerId), PlayerService.get(match.blackPlayerId),
+      MoveService.list(match.id), ResultService.get(match.id),
+    ]);
+    const nextSide = moves.length % 2 === 0 ? 'White' : 'Black';
+
+    let movesHtml = '';
+    for (let i = 0; i < moves.length; i += 2) {
+      const w = moves[i]; const b = moves[i + 1];
+      movesHtml += `<div class="move-list__row ${w?.isIllegal ? 'is-illegal' : ''}"><span class="move-list__num">${Math.floor(i / 2) + 1}.</span><span>${w?.san || ''}</span><span>${b?.san || ''}</span></div>`;
+    }
+
+    wrap.innerHTML = `
+      <h3 style="font-size:1.1rem" class="mb-3"><i class="bi bi-pencil-square me-2"></i>บันทึกการแข่งขัน — ${white?.displayName} vs ${black?.displayName}</h3>
+      <div class="recorder-shell">
+        <div class="recorder-panel">
+          ${renderBoardHtml(match.currentPosition, {})}
+          ${!result ? `
+          <form id="moveForm" class="row g-2 mt-3">
+            <div class="col-8">
+              <label class="form-label small mb-1">การเดินหมากถัดไป (SAN) — ตาของฝ่าย${nextSide === 'White' ? 'ขาว' : 'ดำ'}</label>
+              <input class="form-control" id="sanInput" placeholder="เช่น Nf3, e4, O-O" ${match.status !== 'Running' ? 'disabled' : ''}>
+            </div>
+            <div class="col-4 d-flex align-items-end gap-2">
+              <button type="submit" class="btn btn-felt flex-grow-1" ${match.status !== 'Running' ? 'disabled' : ''}>บันทึก</button>
+            </div>
+            <div class="col-12 form-check mt-1">
+              <input class="form-check-input" type="checkbox" id="illegalCheck">
+              <label class="form-check-label small" for="illegalCheck">ทำเครื่องหมายเป็นการเดินที่มีข้อสงสัย (Validation Warning) — ระบบจะไม่บล็อกการเดินหมาก</label>
+            </div>
+          </form>
+          <button class="btn btn-sm btn-outline-secondary mt-2" id="undoBtn" ${!moves.length ? 'disabled' : ''}><i class="bi bi-arrow-counterclockwise me-1"></i>Undo ตาล่าสุด</button>
+          ` : `<div class="app-card p-3 mt-3" style="border-color:var(--color-brass)"><strong>ผลอนุมัติแล้ว:</strong> ${result.resultType} ${result.winner ? `(${result.winner === 'White' ? 'ขาว' : 'ดำ'}ชนะ)` : ''}</div>`}
+        </div>
+        <div class="recorder-panel" style="background:var(--color-felt-dark)">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="text-white small">รายการเดินหมาก</span><span class="text-white-50 small">${moves.length} ตา</span>
+          </div>
+          <div class="move-list text-white mb-3">${movesHtml || '<div class="text-white-50 small text-center py-3">ยังไม่มีการเดินหมาก</div>'}</div>
+          ${!result && match.status === 'Running' ? `
+          <hr class="border-light border-opacity-10">
+          <div class="text-white small mb-2">ส่งผลการแข่งขัน</div>
+          <form id="resultForm" class="d-flex flex-column gap-2">
+            <select class="form-select form-select-sm" id="f_type">${Object.values(ResultType).map((t) => `<option>${t}</option>`).join('')}</select>
+            <select class="form-select form-select-sm" id="f_winner"><option value="White">ฝ่ายขาวชนะ</option><option value="Black">ฝ่ายดำชนะ</option><option value="">ไม่มีผู้ชนะ (เสมอ/อื่นๆ)</option></select>
+            <select class="form-select form-select-sm" id="f_reason">${Object.values(ResultReason).map((r) => `<option>${r}</option>`).join('')}</select>
+            <button class="btn btn-brass btn-sm" type="submit">ส่งผลรออนุมัติ</button>
+          </form>` : ''}
+        </div>
+      </div>`;
+
+    document.getElementById('moveForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const san = document.getElementById('sanInput').value.trim();
+      if (!san) return;
+      await MoveService.record({ matchId: match.id, side: nextSide, san, fen: match.currentPosition, isIllegal: document.getElementById('illegalCheck').checked }, session.adminId);
+      showToast('บันทึกการเดินหมากแล้ว');
+      await renderRecorder(); await renderList();
+    });
+    document.getElementById('undoBtn')?.addEventListener('click', async () => {
+      await MoveService.undoLast(match.id, session.adminId);
+      showToast('Undo สำเร็จ');
+      await renderRecorder(); await renderList();
+    });
+    document.getElementById('resultForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await ResultService.submit({
+        matchId: match.id,
+        resultType: document.getElementById('f_type').value,
+        winner: document.getElementById('f_winner').value || null,
+        reason: document.getElementById('f_reason').value,
+      }, session.adminId);
+      showToast('ส่งผลการแข่งขันรออนุมัติจากกรรมการแล้ว');
+      await renderRecorder(); await renderList();
+    });
+  }
+
+  await renderList();
+  MatchService.subscribe({}, async () => { await renderList(); if (openMatchId) await renderRecorder(); });
+}
+</script>
+</body>
+</html>

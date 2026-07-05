@@ -1,0 +1,107 @@
+rules_version = '2';
+
+/**
+ * Firestore Security Rules — CCTMS
+ * Based on PART 7 (Security & Data Access) of the project spec.
+ *
+ * IMPORTANT — schema assumption for these rules:
+ * Admin documents in the `admins` collection must use the Firebase Auth
+ * UID as their document ID (i.e. admins/{uid}), not a generated id like
+ * "admin_x7f2a". This lets rules check `get(/databases/$(db)/documents/admins/$(request.auth.uid))`
+ * cheaply instead of running a query inside a rule.
+ *
+ * To make the app match this: when an admin is first added (AdminService.createAdmin),
+ * either (a) set the document id to the target user's UID once known, or
+ * (b) simplest for a school-scale deployment: have the Super Admin sign in once with
+ * the intended Google account first, copy the resulting UID from the Firebase Console
+ * → Authentication tab, then create/rename the admins/{uid} document to match.
+ * A small helper script (Admin SDK) can automate this if you have many admins to onboard.
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myAdminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isActiveAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && myAdminDoc().data.status == 'Active';
+    }
+
+    function myRoleName() {
+      return get(/databases/$(database)/documents/roles/$(myAdminDoc().data.roleId)).data.name;
+    }
+
+    function isSuperAdmin() {
+      return isActiveAdmin() && myRoleName() == 'Super Admin';
+    }
+
+    function isTournamentAdmin() {
+      return isActiveAdmin() && (myRoleName() == 'Super Admin' || myRoleName() == 'Tournament Admin');
+    }
+
+    function isRecorder() {
+      return isActiveAdmin() && (myRoleName() == 'Super Admin' || myRoleName() == 'Tournament Admin' || myRoleName() == 'Recorder');
+    }
+
+    function isJudge() {
+      return isActiveAdmin() && (myRoleName() == 'Super Admin' || myRoleName() == 'Judge');
+    }
+
+    // ---- Public read-only content: visible to everyone, editable by Tournament Admin+ ----
+    match /events/{id}          { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /tournaments/{id}      { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /teams/{id}            { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /players/{id}          { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /schedules/{id}        { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /rounds/{id}           { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /halls/{id}            { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /news/{id}             { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /gallery/{id}          { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /hallOfFame/{id}       { allow read: if true; allow write: if isTournamentAdmin(); }
+
+    // ---- Live competition data: public read (for the live-board site), Recorder+ write ----
+    match /boards/{id}   { allow read: if true; allow write: if isRecorder(); }
+    match /matches/{id}  { allow read: if true; allow write: if isRecorder(); }
+    match /moves/{id}    { allow read: if true; allow write: if isRecorder(); }
+
+    // ---- Results: Recorder can submit (create), only Judge+ can approve/amend (update) ----
+    match /results/{id} {
+      allow read: if true;
+      allow create: if isRecorder();
+      allow update: if isJudge();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ---- Derived data: public read, written only by server-trusted recompute logic ----
+    match /statistics/{id} { allow read: if true; allow write: if isTournamentAdmin(); }
+    match /rankings/{id}   { allow read: if true; allow write: if isTournamentAdmin(); }
+
+    // ---- System / RBAC: admin-only read, Super Admin-only write ----
+    match /admins/{id} {
+      allow read: if isActiveAdmin();
+      allow write: if isSuperAdmin();
+    }
+    match /roles/{id}       { allow read: if isActiveAdmin(); allow write: if isSuperAdmin(); }
+    match /permissions/{id} { allow read: if isActiveAdmin(); allow write: if isSuperAdmin(); }
+
+    // ---- Logs: any active admin may write their own action logs; only admins may read ----
+    match /activityLogs/{id} {
+      allow read: if isActiveAdmin();
+      allow create: if isActiveAdmin();
+      allow update, delete: if false; // logs are append-only
+    }
+    match /auditLogs/{id} {
+      allow read: if isActiveAdmin();
+      allow create: if isJudge();
+      allow update, delete: if false; // audit trail is append-only
+    }
+  }
+}

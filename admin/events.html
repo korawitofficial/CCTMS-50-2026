@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>จัดการ Event — CCTMS Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/admin.css">
+</head>
+<body>
+<script type="module">
+import { mountAdminLayout } from '../src/components/adminLayout.js';
+import { EventService } from '../src/services/EventService.js';
+import { statusPill, openModal, closeModal, confirmModal, emptyRow } from '../src/components/ui.js';
+import { slugify, formatDate, showToast } from '../src/utils/helpers.js';
+import { TournamentStatus, Visibility } from '../src/utils/enums.js';
+
+const ctx = mountAdminLayout({ title: 'จัดการ Event' });
+if (ctx) {
+  const { content, session } = ctx;
+  content.innerHTML = `
+    <div class="table-toolbar">
+      <h2 style="font-size:1.2rem" class="m-0">รายการ Event</h2>
+      <button class="btn btn-felt btn-sm" id="addBtn"><i class="bi bi-plus-lg me-1"></i>เพิ่ม Event</button>
+    </div>
+    <div class="app-card p-0"><table class="app-table">
+      <thead><tr><th>ชื่อ Event</th><th>ช่วงเวลา</th><th>สถานะ</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>`;
+
+  function formHtml(e = {}) {
+    return `
+      <div class="mb-3"><label class="form-label">ชื่อ Event <span class="req">*</span></label><input class="form-control" id="f_name" value="${e.name || ''}"></div>
+      <div class="mb-3"><label class="form-label">คำอธิบาย</label><textarea class="form-control" id="f_desc" rows="2">${e.description || ''}</textarea></div>
+      <div class="row g-2 mb-3">
+        <div class="col-6"><label class="form-label">วันที่เริ่ม</label><input type="date" class="form-control" id="f_start" value="${e.startDate ? e.startDate.slice(0,10) : ''}"></div>
+        <div class="col-6"><label class="form-label">วันที่สิ้นสุด</label><input type="date" class="form-control" id="f_end" value="${e.endDate ? e.endDate.slice(0,10) : ''}"></div>
+      </div>
+      <div class="mb-1"><label class="form-label">สถานะ</label>
+        <select class="form-select" id="f_status">${Object.values(TournamentStatus).map((s) => `<option ${e.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      </div>`;
+  }
+
+  function openForm(existing) {
+    openModal({
+      title: existing ? 'แก้ไข Event' : 'เพิ่ม Event ใหม่',
+      bodyHtml: formHtml(existing || {}),
+      buttons: [
+        { label: 'ยกเลิก', variant: 'btn-outline-secondary' },
+        { label: 'บันทึก', variant: 'btn-felt', close: false, onClick: async () => {
+          const name = document.getElementById('f_name').value.trim();
+          if (!name) { showToast('กรุณากรอกชื่อ Event', 'error'); return; }
+          const data = {
+            name,
+            slug: existing?.slug || slugify(name),
+            description: document.getElementById('f_desc').value.trim(),
+            startDate: document.getElementById('f_start').value ? new Date(document.getElementById('f_start').value).toISOString() : null,
+            endDate: document.getElementById('f_end').value ? new Date(document.getElementById('f_end').value).toISOString() : null,
+            status: document.getElementById('f_status').value,
+            visibility: Visibility.PUBLIC,
+          };
+          if (existing) await EventService.update(existing.id, data, session.adminId);
+          else await EventService.create(data, session.adminId);
+          showToast('บันทึกสำเร็จ');
+          closeModal();
+          await render();
+        }},
+      ],
+    });
+  }
+
+  async function render() {
+    const rows = await EventService.list();
+    document.getElementById('rows').innerHTML = rows.length ? rows.map((e) => `
+      <tr>
+        <td><div class="fw-semibold text-dark">${e.name}</div><div class="small text-soft">${e.description || ''}</div></td>
+        <td class="small">${formatDate(e.startDate)} – ${formatDate(e.endDate)}</td>
+        <td>${statusPill(e.status)}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-secondary" data-edit="${e.id}"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" data-hide="${e.id}"><i class="bi bi-eye-slash"></i></button>
+        </td>
+      </tr>`).join('') : emptyRow(4, 'ยังไม่มี Event');
+
+    document.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', async () => openForm(await EventService.get(b.dataset.edit))));
+    document.querySelectorAll('[data-hide]').forEach((b) => b.addEventListener('click', () => {
+      confirmModal({ message: 'ซ่อน Event นี้จากหน้าเว็บสาธารณะหรือไม่?', onConfirm: async () => { await EventService.hide(b.dataset.hide, session.adminId); showToast('ซ่อน Event แล้ว'); await render(); } });
+    }));
+  }
+  document.getElementById('addBtn').addEventListener('click', () => openForm());
+  await render();
+}
+</script>
+</body>
+</html>

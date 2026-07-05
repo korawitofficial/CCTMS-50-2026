@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ผลการแข่งขัน — CCTMS Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/admin.css">
+</head>
+<body>
+<script type="module">
+import { mountAdminLayout } from '../src/components/adminLayout.js';
+import { ResultService } from '../src/services/ResultService.js';
+import { MatchService } from '../src/services/MatchService.js';
+import { PlayerService } from '../src/services/PlayerService.js';
+import { BoardService } from '../src/services/BoardService.js';
+import { StatisticsService } from '../src/services/StatisticsService.js';
+import { RankingService } from '../src/services/RankingService.js';
+import { statusPill, confirmModal, emptyRow, openModal, closeModal } from '../src/components/ui.js';
+import { showToast } from '../src/utils/helpers.js';
+
+const ctx = mountAdminLayout({ title: 'ผลการแข่งขัน' });
+if (ctx) {
+  const { content, session } = ctx;
+  const canApprove = session.roleName === 'Judge' || session.roleName === 'Super Admin';
+
+  content.innerHTML = `
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><button class="nav-link active" data-tab="pending">รออนุมัติ</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="approved">อนุมัติแล้ว</button></li>
+    </ul>
+    <div class="app-card p-0"><table class="app-table">
+      <thead><tr><th>กระดาน</th><th>คู่แข่งขัน</th><th>ผลที่ส่ง</th><th>เหตุผล</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>`;
+
+  let tab = 'pending';
+
+  async function render() {
+    const allResults = await ResultService.list();
+    const rows = allResults.filter((r) => (tab === 'pending' ? !r.approvedAt : !!r.approvedAt));
+    if (!rows.length) { document.getElementById('rows').innerHTML = emptyRow(5, tab === 'pending' ? 'ไม่มีผลรออนุมัติ' : 'ยังไม่มีผลที่อนุมัติแล้ว'); return; }
+
+    const trs = await Promise.all(rows.map(async (r) => {
+      const match = await MatchService.get(r.matchId);
+      const board = match ? await BoardService.get(match.boardId) : null;
+      const [white, black] = match ? await Promise.all([PlayerService.get(match.whitePlayerId), PlayerService.get(match.blackPlayerId)]) : [null, null];
+      return `<tr>
+        <td>${board?.name || '-'}</td>
+        <td class="small">${white?.displayName} vs ${black?.displayName}</td>
+        <td><span class="fw-semibold text-dark">${r.resultType}</span>${r.winner ? ` — ${r.winner === 'White' ? 'ขาว' : 'ดำ'}ชนะ` : ''}</td>
+        <td class="small text-soft">${r.reason || '-'}</td>
+        <td class="text-end">
+          ${tab === 'pending' && canApprove ? `<button class="btn btn-sm btn-brass" data-approve="${r.id}"><i class="bi bi-check-lg me-1"></i>อนุมัติ</button>` : ''}
+          ${tab === 'approved' && canApprove ? `<button class="btn btn-sm btn-outline-secondary" data-amend="${r.id}"><i class="bi bi-pencil me-1"></i>แก้ไขย้อนหลัง</button>` : ''}
+          ${!canApprove ? `<span class="small text-soft">ต้องมีสิทธิ์ Judge</span>` : ''}
+        </td>
+      </tr>`;
+    }));
+    document.getElementById('rows').innerHTML = trs.join('');
+
+    document.querySelectorAll('[data-approve]').forEach((b) => b.addEventListener('click', () => {
+      confirmModal({ danger: false, message: 'ยืนยันการอนุมัติผลการแข่งขันนี้? ระบบจะปิดคู่แข่งขันและคำนวณสถิติใหม่ทันที', confirmLabel: 'อนุมัติ', onConfirm: async () => {
+        const result = await ResultService.approve(b.dataset.approve, session.adminId);
+        const match = result ? await MatchService.get(result.matchId) : null;
+        if (match) {
+          await StatisticsService.recomputeTeam(match.whiteTeamId);
+          await StatisticsService.recomputeTeam(match.blackTeamId);
+          await RankingService.recompute(match.tournamentId);
+        }
+        showToast('อนุมัติผลการแข่งขันสำเร็จ'); await render();
+      }});
+    }));
+
+    document.querySelectorAll('[data-amend]').forEach((b) => b.addEventListener('click', () => {
+      const result = rows.find((r) => r.id === b.dataset.amend);
+      openModal({
+        title: 'แก้ไขผลย้อนหลัง',
+        bodyHtml: `<div class="mb-3"><label class="form-label">เหตุผลในการแก้ไข <span class="req">*</span></label><textarea class="form-control" id="f_reason" rows="2" placeholder="ระบุเหตุผล เพื่อบันทึกลง Audit Log"></textarea></div>
+          <div class="form-hint">การแก้ไขนี้จะถูกบันทึกลง Audit Log พร้อมค่าก่อน-หลังทั้งหมด</div>`,
+        buttons: [{ label: 'ยกเลิก', variant: 'btn-outline-secondary' }, { label: 'ยืนยันแก้ไข', variant: 'btn-danger', close: false, onClick: async () => {
+          const reason = document.getElementById('f_reason').value.trim();
+          if (!reason) { showToast('กรุณาระบุเหตุผล', 'error'); return; }
+          await ResultService.amend(result.id, {}, session.adminId, reason);
+          showToast('บันทึกการแก้ไขและ Audit Log แล้ว'); closeModal(); await render();
+        }}],
+      });
+    }));
+  }
+
+  document.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('active', x === t));
+    tab = t.dataset.tab; render();
+  }));
+  await render();
+  ResultService.subscribe({}, render);
+}
+</script>
+</body>
+</html>

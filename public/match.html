@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายละเอียดคู่แข่งขัน — CCTMS</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/main.css">
+</head>
+<body>
+<main>
+  <section class="section" id="matchSection">
+    <div class="container-xl"><div class="skeleton" style="height:400px;border-radius:16px"></div></div>
+  </section>
+</main>
+
+<script type="module">
+import { mountPublicLayout, emptyState } from '../src/components/publicLayout.js';
+import { MatchService } from '../src/services/MatchService.js';
+import { MoveService } from '../src/services/MoveService.js';
+import { ResultService } from '../src/services/ResultService.js';
+import { PlayerService } from '../src/services/PlayerService.js';
+import { TeamService } from '../src/services/TeamService.js';
+import { BoardService } from '../src/services/BoardService.js';
+import { renderBoardHtml } from '../src/utils/chessBoard.js';
+import { statusPill } from '../src/components/ui.js';
+import { getQueryParam } from '../src/utils/helpers.js';
+
+await mountPublicLayout({ breadcrumb: [{ label: 'หน้าแรก', href: 'index.html' }, { label: 'ถ่ายทอดสด', href: 'live.html' }, { label: 'คู่แข่งขัน' }] });
+
+const matchId = getQueryParam('id');
+const section = document.getElementById('matchSection');
+
+async function renderMatch() {
+  const match = await MatchService.get(matchId);
+  if (!match) { section.innerHTML = `<div class="container-xl">${emptyState('ไม่พบการแข่งขันนี้ อาจถูกย้ายหรือลบไปแล้ว', 'bi-exclamation-circle')}</div>`; return; }
+
+  const [white, black, whiteTeam, blackTeam, board, result, moves] = await Promise.all([
+    PlayerService.get(match.whitePlayerId), PlayerService.get(match.blackPlayerId),
+    TeamService.get(match.whiteTeamId), TeamService.get(match.blackTeamId),
+    BoardService.get(match.boardId), ResultService.get(match.id), MoveService.list(match.id),
+  ]);
+
+  let movesHtml = '';
+  for (let i = 0; i < moves.length; i += 2) {
+    const w = moves[i]; const b = moves[i + 1];
+    movesHtml += `<div class="move-list__row ${w?.isIllegal ? 'is-illegal' : ''}">
+      <span class="move-list__num">${Math.floor(i / 2) + 1}.</span><span>${w?.san || ''}</span><span class="${b?.isIllegal ? 'is-illegal' : ''}">${b?.san || ''}</span>
+    </div>`;
+  }
+
+  section.innerHTML = `
+    <div class="container-xl">
+      <div class="row g-4">
+        <div class="col-lg-7">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <span class="badge-soft">${board?.name || ''}</span>
+            ${statusPill(match.status)}
+          </div>
+          ${renderBoardHtml(match.currentPosition, {})}
+        </div>
+        <div class="col-lg-5">
+          <div class="app-card p-4 mb-3">
+            <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+              <div class="d-flex align-items-center gap-2">
+                <span class="player-chip__swatch" style="background:${whiteTeam?.color}"></span>
+                <div><div class="fw-semibold">${white?.displayName || '-'}</div><div class="small text-soft">${whiteTeam?.name || ''} · ขาว</div></div>
+              </div>
+            </div>
+            <div class="d-flex justify-content-between align-items-center py-2">
+              <div class="d-flex align-items-center gap-2">
+                <span class="player-chip__swatch" style="background:${blackTeam?.color}"></span>
+                <div><div class="fw-semibold">${black?.displayName || '-'}</div><div class="small text-soft">${blackTeam?.name || ''} · ดำ</div></div>
+              </div>
+            </div>
+          </div>
+
+          ${result ? `<div class="app-card p-3 mb-3" style="border-color:var(--color-brass)">
+            <div class="app-card__eyebrow mb-1">ผลการแข่งขัน</div>
+            <div class="fw-semibold text-dark">${result.resultType}${result.winner ? ` — ฝ่าย${result.winner === 'White' ? 'ขาว' : 'ดำ'}ชนะ` : ''}</div>
+            <div class="small text-soft">${result.reason || ''}</div>
+          </div>` : ''}
+
+          <div class="app-card p-3" style="background:var(--color-felt-dark);color:#fff">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="small text-white-50">รายการเดินหมาก</span>
+              <span class="small text-white-50">${moves.length} ตา</span>
+            </div>
+            <div class="move-list">${movesHtml || '<div class="text-white-50 small py-3 text-center">ยังไม่มีการเดินหมาก</div>'}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+await renderMatch();
+MatchService.subscribe({}, renderMatch);
+MoveService.subscribe(matchId, renderMatch);
+ResultService.subscribe({}, renderMatch);
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

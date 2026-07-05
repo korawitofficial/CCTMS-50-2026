@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>แดชบอร์ด — CCTMS Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../src/styles/admin.css">
+</head>
+<body>
+<script type="module">
+import { mountAdminLayout } from '../src/components/adminLayout.js';
+import { TournamentService } from '../src/services/TournamentService.js';
+import { TeamService } from '../src/services/TeamService.js';
+import { PlayerService } from '../src/services/PlayerService.js';
+import { MatchService } from '../src/services/MatchService.js';
+import { BoardService } from '../src/services/BoardService.js';
+import { AdminService } from '../src/services/AdminService.js';
+import { statusPill } from '../src/components/ui.js';
+import { timeAgo } from '../src/utils/helpers.js';
+
+const ctx = mountAdminLayout({ title: 'แดชบอร์ด' });
+if (ctx) {
+  const { content } = ctx;
+
+  async function render() {
+    const [tournaments, teams, players, matches, boards, logs] = await Promise.all([
+      TournamentService.list(), TeamService.list(), PlayerService.list(), MatchService.list(), BoardService.list(),
+      AdminService.listActivityLogs({ limit: 8 }),
+    ]);
+    const running = matches.filter((m) => m.status === 'Running');
+    const pendingResults = matches.filter((m) => !m.resultId && m.status === 'Finished');
+
+    const boardCards = await Promise.all(running.slice(0, 4).map(async (m) => {
+      const board = boards.find((b) => b.id === m.boardId);
+      const [white, black] = await Promise.all([PlayerService.get(m.whitePlayerId), PlayerService.get(m.blackPlayerId)]);
+      return `<div class="col"><a href="matches.html" class="text-decoration-none"><div class="board-card">
+        <div class="board-card__head"><span class="badge-soft" style="background:rgba(255,255,255,.1);color:#fff">${board?.name}</span>${statusPill(m.status)}</div>
+        <div class="board-card__players"><span>${white?.displayName}</span><span>${black?.displayName}</span></div>
+      </div></a></div>`;
+    }));
+
+    content.innerHTML = `
+      <div class="row g-3 mb-4">
+        ${[
+          { label: 'Tournament', value: tournaments.length, icon: 'bi-trophy' },
+          { label: 'ทีม', value: teams.length, icon: 'bi-people' },
+          { label: 'ผู้เล่น', value: players.length, icon: 'bi-person-badge' },
+          { label: 'กำลังแข่งขัน', value: running.length, icon: 'bi-broadcast' },
+        ].map((k) => `<div class="col-6 col-lg-3"><div class="kpi-card d-flex justify-content-between align-items-start">
+          <div><div class="kpi-card__label">${k.label}</div><div class="kpi-card__value">${k.value}</div></div>
+          <div class="kpi-card__icon"><i class="bi ${k.icon}"></i></div>
+        </div></div>`).join('')}
+      </div>
+
+      <div class="row g-4">
+        <div class="col-lg-8">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3 style="font-size:1.05rem" class="m-0">กระดานที่กำลังแข่งขัน</h3>
+            <a href="matches.html" class="btn btn-sm btn-outline-felt">จัดการคู่แข่งขัน</a>
+          </div>
+          <div class="row row-cols-1 row-cols-md-2 g-3">
+            ${boardCards.length ? boardCards.join('') : '<div class="col-12"><div class="app-card p-4 text-center text-soft">ไม่มีการแข่งขันที่กำลังดำเนินอยู่</div></div>'}
+          </div>
+
+          ${pendingResults.length ? `<div class="app-card p-3 mt-4" style="border-color:var(--color-brass)">
+            <div class="d-flex align-items-center gap-2 mb-1"><i class="bi bi-exclamation-triangle" style="color:var(--color-brass)"></i><strong>มีผลรออนุมัติ ${pendingResults.length} รายการ</strong></div>
+            <a href="results.html" class="small">ไปที่หน้าผลการแข่งขัน →</a>
+          </div>` : ''}
+        </div>
+        <div class="col-lg-4">
+          <h3 style="font-size:1.05rem" class="mb-3">กิจกรรมล่าสุด</h3>
+          <div class="app-card p-3">
+            <ul class="list-unstyled m-0 d-flex flex-column gap-3">
+              ${logs.length ? logs.map((l) => `<li class="d-flex gap-2">
+                <div class="avatar-circle" style="width:30px;height:30px;font-size:.7rem;flex-shrink:0">${l.admin?.displayName?.[0] || '?'}</div>
+                <div><div class="small text-dark">${l.description}</div><div class="small text-soft">${timeAgo(l.createdAt)}</div></div>
+              </li>`).join('') : '<li class="text-soft small">ยังไม่มีกิจกรรม</li>'}
+            </ul>
+          </div>
+        </div>
+      </div>`;
+  }
+  await render();
+  MatchService.subscribe({}, render);
+}
+</script>
+</body>
+</html>
